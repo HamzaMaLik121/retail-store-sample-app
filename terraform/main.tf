@@ -80,3 +80,50 @@ module "retail_app_eks" {
 
   tags = local.common_tags
 }
+# =============================================================================
+# ECR REPOSITORIES
+# =============================================================================
+
+resource "aws_ecr_repository" "retail_store" {
+  for_each = toset(["cart", "catalog", "orders", "ui", "checkout"])
+
+  name                 = "retail-store-${each.key}"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = local.common_tags
+}
+# =============================================================================
+# BUILD AND PUSH IMAGES TO ECR
+# =============================================================================
+
+resource "null_resource" "build_and_push_images" {
+  for_each = toset(["cart", "catalog", "orders", "ui", "checkout"])
+
+  depends_on = [aws_ecr_repository.retail_store]
+
+  triggers = {
+    always_run = timestamp()
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws ecr get-login-password --region us-east-1 | \
+        docker login --username AWS --password-stdin \
+        839706991042.dkr.ecr.us-east-1.amazonaws.com
+
+      docker build -t retail-store-${each.key} \
+        ${path.module}/../src/${each.key}
+
+      docker tag retail-store-${each.key}:latest \
+        839706991042.dkr.ecr.us-east-1.amazonaws.com/retail-store-${each.key}:db791a4
+
+      docker push \
+        839706991042.dkr.ecr.us-east-1.amazonaws.com/retail-store-${each.key}:db791a4
+    EOT
+  }
+}
